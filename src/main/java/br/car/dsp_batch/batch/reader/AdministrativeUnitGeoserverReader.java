@@ -62,7 +62,7 @@ public class AdministrativeUnitGeoserverReader
                                                     TemporalColumnSpecs temporalColumns) {
         String partitionColumn = tableConfig.getPartitionColumn();
         String geom = tableConfig.getGeometryColumn();
-        List<String> persistColumns = new ArrayList<>(tableConfig.getAllBusinessPersistColumns());
+        List<String> persistColumns = new ArrayList<>(tableConfig.getPersistColumns());
 
         String selectColumns = String.join(", ", persistColumns);
 
@@ -73,7 +73,7 @@ public class AdministrativeUnitGeoserverReader
         }
 
         int srid = tableConfig.getSrid();
-        String transformedGeom = "public.ST_Transform(" + geom + ", " + srid + ")";
+        String transformedGeom = GeometrySql.transform(geom, srid);
 
         PostgresPagingQueryProvider queryProvider = new PostgresPagingQueryProvider();
         queryProvider.setSelectClause(
@@ -144,7 +144,7 @@ public class AdministrativeUnitGeoserverReader
                 }
             }
 
-            for (String column : tableConfig.getAllBusinessPersistColumns()) {
+            for (String column : tableConfig.getPersistColumns()) {
                 String udt = udtByLabel.get(column.toLowerCase(Locale.ROOT));
                 if (udt != null && TemporalTypeClassifier.isTemporal(udt)) {
                     dto.putAttribute(column, CommonTemporalHandler.read(rs, column, udt));
