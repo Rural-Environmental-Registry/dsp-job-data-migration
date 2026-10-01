@@ -16,7 +16,7 @@ import java.util.Set;
  * <p>Mandatory source columns map to fixed target names on DSP
  * ({@code id}, {@code created_at}, {@code updated_at}, {@code territory_level_3_id},
  * {@code area}, {@code geom}). Optional extras in {@code additional-columns} go to business +
- * geo-target. KPI columns in {@code business-only-persist-columns} are written only to dsp-db.
+ * geo-target.
  */
 @Getter
 @Setter
@@ -28,8 +28,6 @@ public class AreaOfInterestConfig {
     public static final String TERRITORY_LEVEL_3_ID_COLUMN = "territory_level_3_id";
     public static final String AREA_COLUMN = "area";
     public static final String GEOMETRY_COLUMN = "geom";
-    public static final List<String> KPI_THEME_COLUMNS = List.of(
-            "theme_1", "theme_2", "theme_3", "theme_4");
 
     public static final Set<String> CANONICAL_TARGET_COLUMNS = Set.of(
             ID_COLUMN,
@@ -50,8 +48,6 @@ public class AreaOfInterestConfig {
     private String geometryColumn;
     /** Extra source columns migrated to business + geo-target (same name on target). */
     private List<String> additionalColumns = new ArrayList<>();
-    /** KPI columns migrated only to dsp-db (same name on target), e.g. theme_1…theme_4. */
-    private List<String> businessOnlyPersistColumns = new ArrayList<>();
     private String whereClause = "1=1";
     private Integer srid;
     private String layerName;
@@ -88,7 +84,6 @@ public class AreaOfInterestConfig {
         requireNonBlank("primary-key", primaryKey);
         requireNonBlank("creation-date-column", creationDateColumn);
         requireNonBlank("territory-level-3-column", territoryLevel3Column);
-        requireNonBlank("total-area-column", totalAreaColumn);
         requireNonBlank("geometry-column", geometryColumn);
         if (srid == null || srid <= 0) {
             throw new IllegalStateException(
@@ -97,19 +92,12 @@ public class AreaOfInterestConfig {
         validateOptionalColumnList(
                 additionalColumns,
                 "additional-columns",
-                Set.of(),
-                true);
-        validateOptionalColumnList(
-                businessOnlyPersistColumns,
-                "business-only-persist-columns",
-                normalizedOptionalColumns(additionalColumns),
-                false);
+                Set.of());
     }
 
     private void validateOptionalColumnList(List<String> columns,
                                             String fieldName,
-                                            Set<String> forbiddenDuplicates,
-                                            boolean validateAgainstBusinessOnly) {
+                                            Set<String> forbiddenDuplicates) {
         if (columns == null || columns.isEmpty()) {
             return;
         }
@@ -117,9 +105,6 @@ public class AreaOfInterestConfig {
         Set<String> requiredSource = requiredSourceColumns();
 
         Set<String> forbidden = new LinkedHashSet<>(forbiddenDuplicates);
-        if (validateAgainstBusinessOnly) {
-            forbidden.addAll(normalizedOptionalColumns(businessOnlyPersistColumns));
-        }
 
         Set<String> seen = new LinkedHashSet<>();
         for (String raw : columns) {
@@ -157,7 +142,9 @@ public class AreaOfInterestConfig {
         required.add(primaryKey.trim());
         required.add(creationDateColumn.trim());
         required.add(territoryLevel3Column.trim());
-        required.add(totalAreaColumn.trim());
+        if (totalAreaColumn != null && !totalAreaColumn.isBlank()) {
+            required.add(totalAreaColumn.trim());
+        }
         required.add(geometryColumn.trim());
         if (updatedAtColumn != null && !updatedAtColumn.isBlank()) {
             required.add(updatedAtColumn.trim());

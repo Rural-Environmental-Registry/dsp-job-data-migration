@@ -5,12 +5,14 @@ import br.car.dsp_batch.aoi.ddl.AreaOfInterestTableDdlBuilder;
 import br.car.dsp_batch.aoi.introspection.AreaOfInterestIntrospectionService;
 import br.car.dsp_batch.aoi.metadata.AreaOfInterestMetadataRegistry;
 import br.car.dsp_batch.aoi.partitioner.DeferredAreaOfInterestPartitioner;
+import br.car.dsp_batch.aoi.service.AreaOfInterestDepartedTerritoryCollector;
 import br.car.dsp_batch.aoi.tasklet.AreaOfInterestChangeDetectionTasklet;
 import br.car.dsp_batch.aoi.tasklet.AreaOfInterestTableSetupTasklet;
 import br.car.dsp_batch.batch.config.ChangeDecider;
 import br.car.dsp_batch.batch.config.ParallelizationConfig;
 import br.car.dsp_batch.batch.listener.GeoCacheUpdateListener;
 import br.car.dsp_batch.batch.listener.ParallelizationMonitorListener;
+import br.car.dsp_batch.geofile.GeoFileRegenerationFlagListener;
 import br.car.dsp_batch.layer.dto.LayerFeatureRecord;
 import br.car.dsp_batch.sync.SyncStateRepository;
 import br.car.dsp_batch.sync.SyncWatermarkCommitListener;
@@ -53,8 +55,10 @@ public class AreaOfInterestJobFactory {
     private final AreaOfInterestTableDdlBuilder ddlBuilder;
     private final AreaOfInterestMetadataRegistry registry;
     private final WatermarkChangeDetectionEngine changeDetectionEngine;
+    private final AreaOfInterestDepartedTerritoryCollector departedTerritoryCollector;
     private final SyncStateRepository syncStateRepository;
     private final SyncWatermarkCommitListener watermarkCommitListener;
+    private final GeoFileRegenerationFlagListener geoFileRegenerationFlagListener;
     private final GeoCacheUpdateListener geoCacheUpdateListener;
     private final ChangeDecider changeDecider;
     private final ParallelizationConfig parallelizationConfig;
@@ -72,8 +76,10 @@ public class AreaOfInterestJobFactory {
             AreaOfInterestTableDdlBuilder ddlBuilder,
             AreaOfInterestMetadataRegistry registry,
             WatermarkChangeDetectionEngine changeDetectionEngine,
+            AreaOfInterestDepartedTerritoryCollector departedTerritoryCollector,
             SyncStateRepository syncStateRepository,
             SyncWatermarkCommitListener watermarkCommitListener,
+            GeoFileRegenerationFlagListener geoFileRegenerationFlagListener,
             GeoCacheUpdateListener geoCacheUpdateListener,
             ChangeDecider changeDecider,
             ParallelizationConfig parallelizationConfig,
@@ -89,8 +95,10 @@ public class AreaOfInterestJobFactory {
         this.ddlBuilder = ddlBuilder;
         this.registry = registry;
         this.changeDetectionEngine = changeDetectionEngine;
+        this.departedTerritoryCollector = departedTerritoryCollector;
         this.syncStateRepository = syncStateRepository;
         this.watermarkCommitListener = watermarkCommitListener;
+        this.geoFileRegenerationFlagListener = geoFileRegenerationFlagListener;
         this.geoCacheUpdateListener = geoCacheUpdateListener;
         this.changeDecider = changeDecider;
         this.parallelizationConfig = parallelizationConfig;
@@ -110,6 +118,7 @@ public class AreaOfInterestJobFactory {
         return new JobBuilder(JOB_NAME, jobRepository)
                 .listener(geoCacheUpdateListener)
                 .listener(watermarkCommitListener)
+                .listener(geoFileRegenerationFlagListener)
                 .start(setupStep)
                 .next(changeDetectionStep)
                 .next(changeDecider)
@@ -142,6 +151,7 @@ public class AreaOfInterestJobFactory {
                         new JdbcTemplate(targetDataSource),
                         new JdbcTemplate(geoTargetDataSource),
                         changeDetectionEngine,
+                        departedTerritoryCollector,
                         registry,
                         syncKey
                 ), transactionManager)

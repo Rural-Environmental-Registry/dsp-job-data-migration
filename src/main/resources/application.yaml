@@ -141,11 +141,6 @@ batch:
     where-clause: "1=1"
     # additional-columns:
     #   - source_optional_attr
-    # business-only-persist-columns:
-    #   - source_theme_1
-    #   - source_theme_2
-    #   - source_theme_3
-    #   - source_theme_4
     layer-name: source-properties-geoserver-layer
     srid: 4326
     # sync-key default: area_of_interest

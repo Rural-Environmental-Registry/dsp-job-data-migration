@@ -27,14 +27,9 @@ public record AreaOfInterestTableMetadata(
         String geometryColumn,
         int srid,
         List<ColumnMetadata> columns,
-        List<String> businessOnlySourceColumns,
         List<IndexMetadata> indexes,
         String whereClause
 ) {
-
-    public boolean isBusinessOnlySourceColumn(String sourceColumnName) {
-        return businessOnlySourceColumns.contains(sourceColumnName);
-    }
 
     public String creationDateSourceColumn() {
         return creationDateColumn.sourceColumn();
@@ -66,16 +61,9 @@ public record AreaOfInterestTableMetadata(
         return List.copyOf(names);
     }
 
-    /** Non-geometry columns written to geo-target (excludes business-only KPI columns). */
+    /** Non-geometry columns written to geo-target. */
     public List<String> targetGeoNonGeometryColumnNames() {
-        Set<String> names = new LinkedHashSet<>();
-        for (String sourceColumn : sourceNonGeometryColumnNames()) {
-            if (isBusinessOnlySourceColumn(sourceColumn)) {
-                continue;
-            }
-            names.add(resolveTargetColumnName(sourceColumn));
-        }
-        return List.copyOf(names);
+        return targetNonGeometryColumnNames();
     }
 
     public String resolveTargetGeometryColumn() {
@@ -103,7 +91,7 @@ public record AreaOfInterestTableMetadata(
         if (sourceColumnName.equals(territoryLevel3SourceColumn)) {
             return AreaOfInterestConfig.TERRITORY_LEVEL_3_ID_COLUMN;
         }
-        if (sourceColumnName.equals(totalAreaSourceColumn)) {
+        if (totalAreaSourceColumn != null && sourceColumnName.equals(totalAreaSourceColumn)) {
             return AreaOfInterestConfig.AREA_COLUMN;
         }
         if (sourceColumnName.equals(geometryColumn)) {
