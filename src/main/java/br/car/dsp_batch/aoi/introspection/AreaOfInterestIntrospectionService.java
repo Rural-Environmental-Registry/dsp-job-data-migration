@@ -77,7 +77,7 @@ public class AreaOfInterestIntrospectionService {
         WatermarkColumnSpec updatedAtColumn = resolveOptionalTemporalColumn(
                 allColumns, config.getUpdatedAtColumn(), config, "updated-at-column");
         String updatedAtColumnName = updatedAtColumn == null ? null : updatedAtColumn.sourceColumn();
-        String territoryLevel3Column = requireConfiguredColumn(
+        String territoryLevel3Column = resolveOptionalConfiguredColumn(
                 allColumns, config.getTerritoryLevel3Column(), "territory-level-3-column");
         String totalAreaColumn = resolveOptionalConfiguredColumn(
                 allColumns, config.getTotalAreaColumn(), "total-area-column");
@@ -189,7 +189,9 @@ public class AreaOfInterestIntrospectionService {
         if (updatedAtColumn != null) {
             orderedNames.add(updatedAtColumn);
         }
-        orderedNames.add(territoryLevel3Column);
+        if (territoryLevel3Column != null) {
+            orderedNames.add(territoryLevel3Column);
+        }
         if (totalAreaColumn != null) {
             orderedNames.add(totalAreaColumn);
         }

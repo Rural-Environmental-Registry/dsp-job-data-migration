@@ -53,10 +53,17 @@ public record AreaOfInterestTableMetadata(
         return names;
     }
 
+    public boolean usesSourceTerritoryLevel3Column() {
+        return territoryLevel3SourceColumn != null && !territoryLevel3SourceColumn.isBlank();
+    }
+
     public List<String> targetNonGeometryColumnNames() {
         Set<String> names = new LinkedHashSet<>();
         for (String sourceColumn : sourceNonGeometryColumnNames()) {
             names.add(resolveTargetColumnName(sourceColumn));
+        }
+        if (!names.contains(AreaOfInterestConfig.TERRITORY_LEVEL_3_ID_COLUMN)) {
+            names.add(AreaOfInterestConfig.TERRITORY_LEVEL_3_ID_COLUMN);
         }
         return List.copyOf(names);
     }
@@ -88,7 +95,8 @@ public record AreaOfInterestTableMetadata(
         if (hasUpdatedAtColumn() && sourceColumnName.equals(updatedAtSourceColumn())) {
             return AreaOfInterestConfig.UPDATED_AT_COLUMN;
         }
-        if (sourceColumnName.equals(territoryLevel3SourceColumn)) {
+        if (usesSourceTerritoryLevel3Column()
+                && sourceColumnName.equals(territoryLevel3SourceColumn)) {
             return AreaOfInterestConfig.TERRITORY_LEVEL_3_ID_COLUMN;
         }
         if (totalAreaSourceColumn != null && sourceColumnName.equals(totalAreaSourceColumn)) {
@@ -111,7 +119,10 @@ public record AreaOfInterestTableMetadata(
             return updatedAtSourceColumn();
         }
         if (AreaOfInterestConfig.TERRITORY_LEVEL_3_ID_COLUMN.equals(targetColumnName)) {
-            return territoryLevel3SourceColumn;
+            if (usesSourceTerritoryLevel3Column()) {
+                return territoryLevel3SourceColumn;
+            }
+            return AreaOfInterestConfig.TERRITORY_LEVEL_3_ID_COLUMN;
         }
         if (AreaOfInterestConfig.AREA_COLUMN.equals(targetColumnName)) {
             return totalAreaSourceColumn;

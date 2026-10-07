@@ -103,6 +103,11 @@ public class AreaOfInterestTableDdlBuilder {
             String ddlType = resolveDdlType(targetColumnName, column);
             columnDefinitions.add(quote(targetColumnName) + " " + ddlType);
         }
+        if (!emittedTargetColumns.contains(AreaOfInterestConfig.TERRITORY_LEVEL_3_ID_COLUMN)) {
+            columnDefinitions.add(
+                    quote(AreaOfInterestConfig.TERRITORY_LEVEL_3_ID_COLUMN) + " varchar(64)");
+            emittedTargetColumns.add(AreaOfInterestConfig.TERRITORY_LEVEL_3_ID_COLUMN);
+        }
         if (includeBusinessExtras) {
             if (!emittedTargetColumns.contains(AreaOfInterestConfig.AREA_COLUMN)
                     && metadata.totalAreaSourceColumn() == null) {
