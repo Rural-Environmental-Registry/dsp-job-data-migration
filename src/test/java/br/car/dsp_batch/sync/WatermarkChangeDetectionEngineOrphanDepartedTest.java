@@ -180,6 +180,73 @@ class WatermarkChangeDetectionEngineOrphanDepartedTest {
     }
 
     @Test
+    void deleteOrphans_CapturesDepartedLevel3FromLayerFeatureBeforeDelete() {
+        JdbcTemplate sourceJdbc = mock(JdbcTemplate.class);
+        JdbcTemplate geoTargetJdbc = mock(JdbcTemplate.class);
+        JobExecution jobExecution = new JobExecution(12L);
+        String layerSyncKey = "dsp_zona_seguranca_300m";
+
+        when(syncStateRepository.findBySyncKey(layerSyncKey)).thenReturn(Optional.of(
+                new SyncState(
+                        layerSyncKey,
+                        "src.layer",
+                        Instant.parse("2026-01-01T00:00:00Z"),
+                        Instant.parse("2026-01-01T00:00:00Z"),
+                        1L,
+                        Instant.now().minus(WatermarkSettings.ORPHAN_CHECK_INTERVAL).minusSeconds(60)
+                )));
+
+        doAnswer(invocation -> null).when(sourceJdbc).query(anyString(), any(RowCallbackHandler.class));
+        doAnswer(invocation -> {
+            RowCallbackHandler handler = invocation.getArgument(1);
+            handler.processRow(mockBboxResultSet("layer-1"));
+            return null;
+        }).when(geoTargetJdbc).query(anyString(), any(RowCallbackHandler.class));
+        doAnswer(invocation -> {
+            RowCallbackHandler handler = invocation.getArgument(1);
+            handler.processRow(mockResultSet("l3-layer"));
+            return null;
+        }).when(geoTargetJdbc).query(anyString(), any(RowCallbackHandler.class), any(Object[].class));
+        when(geoTargetJdbc.update(anyString(), any(Object[].class))).thenReturn(1);
+
+        WatermarkTableSpec spec = new WatermarkTableSpec(
+                layerSyncKey,
+                "src.layer",
+                "id",
+                "geom",
+                TemporalTestFixtures.timestamptz("created_at"),
+                TemporalTestFixtures.timestamptz("updated_at"),
+                "1=1",
+                4326,
+                "zona-seguranca-300m",
+                "dsp.zona_seguranca_300m",
+                "id",
+                "geometry",
+                null,
+                null,
+                null
+        );
+
+        engine.detectChanges(
+                sourceJdbc,
+                geoTargetJdbc,
+                null,
+                spec,
+                chunkContext(jobExecution)
+        );
+
+        assertEquals(Set.of("l3-layer"), DepartedLevel3ContextSupport.read(jobExecution.getExecutionContext()));
+
+        ArgumentCaptor<String> departedSql = ArgumentCaptor.forClass(String.class);
+        verify(geoTargetJdbc).query(departedSql.capture(), any(RowCallbackHandler.class), any(Object[].class));
+        assertEquals(
+                "SELECT DISTINCT aoi.territory_level_3_id FROM dsp.zona_seguranca_300m l"
+                        + " INNER JOIN dsp.area_of_interest aoi ON aoi.id = l.area_of_interest_id"
+                        + " WHERE l.id IN (?) AND aoi.territory_level_3_id IS NOT NULL",
+                departedSql.getValue());
+    }
+
+    @Test
     void deleteOrphans_SkipsDepartedCaptureWhenColumnNotConfigured() {
         JdbcTemplate sourceJdbc = mock(JdbcTemplate.class);
         JdbcTemplate geoTargetJdbc = mock(JdbcTemplate.class);

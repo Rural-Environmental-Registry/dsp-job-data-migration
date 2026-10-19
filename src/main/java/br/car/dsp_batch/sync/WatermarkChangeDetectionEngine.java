@@ -1,5 +1,6 @@
 package br.car.dsp_batch.sync;
 
+import br.car.dsp_batch.aoi.config.AreaOfInterestConfig;
 import br.car.dsp_batch.geometry.GeometrySql;
 import br.car.dsp_batch.kpi.ddl.KpiMeasureTableDdlBuilder;
 import br.car.dsp_batch.layer.config.LayerConfig;
@@ -408,11 +409,38 @@ public class WatermarkChangeDetectionEngine {
                                                        WatermarkTableSpec spec,
                                                        Set<Object> orphanIds,
                                                        ExecutionContext jobContext) {
-        String departedColumn = spec.geoTargetDepartedTerritoryColumn();
-        if (departedColumn == null || departedColumn.isBlank() || orphanIds.isEmpty()) {
+        if (orphanIds.isEmpty()) {
             return;
         }
 
+        String departedColumn = spec.geoTargetDepartedTerritoryColumn();
+        Set<String> departedLevel3Ids = new HashSet<>();
+        if (departedColumn != null && !departedColumn.isBlank()) {
+            departedLevel3Ids.addAll(queryDepartedLevel3FromColumn(
+                    geoTargetJdbc, spec, departedColumn, orphanIds));
+        } else if (isGeographicLayerSpec(spec)) {
+            departedLevel3Ids.addAll(queryDepartedLevel3FromLayerOrphans(
+                    geoTargetJdbc, spec, orphanIds));
+        } else {
+            return;
+        }
+
+        if (!departedLevel3Ids.isEmpty()) {
+            DepartedLevel3ContextSupport.merge(jobContext, departedLevel3Ids);
+            log.info("Orphan check: {} departed level 3 territor(ies) captured before delete",
+                    departedLevel3Ids.size());
+        }
+    }
+
+    private static boolean isGeographicLayerSpec(WatermarkTableSpec spec) {
+        String syncKey = spec.syncKey();
+        return syncKey != null && syncKey.startsWith(LayerConfig.TARGET_SCHEMA + "_");
+    }
+
+    private Set<String> queryDepartedLevel3FromColumn(JdbcTemplate geoTargetJdbc,
+                                                     WatermarkTableSpec spec,
+                                                     String departedColumn,
+                                                     Set<Object> orphanIds) {
         String placeholders = orphanIds.stream().map(id -> "?").collect(Collectors.joining(","));
         String sql = String.format(
                 "SELECT DISTINCT %s FROM %s WHERE %s IN (%s) AND %s IS NOT NULL",
@@ -429,12 +457,34 @@ public class WatermarkChangeDetectionEngine {
                 departedLevel3Ids.add(value.toString().trim());
             }
         }, orphanIds.toArray());
+        return departedLevel3Ids;
+    }
 
-        if (!departedLevel3Ids.isEmpty()) {
-            DepartedLevel3ContextSupport.merge(jobContext, departedLevel3Ids);
-            log.info("Orphan check: {} departed level 3 territor(ies) captured before delete",
-                    departedLevel3Ids.size());
-        }
+    private Set<String> queryDepartedLevel3FromLayerOrphans(JdbcTemplate geoTargetJdbc,
+                                                            WatermarkTableSpec spec,
+                                                            Set<Object> orphanIds) {
+        String placeholders = orphanIds.stream().map(id -> "?").collect(Collectors.joining(","));
+        String sql = String.format(
+                "SELECT DISTINCT aoi.%s FROM %s l"
+                        + " INNER JOIN %s aoi ON aoi.%s = l.%s"
+                        + " WHERE l.%s IN (%s) AND aoi.%s IS NOT NULL",
+                AreaOfInterestConfig.TERRITORY_LEVEL_3_ID_COLUMN,
+                spec.geoTargetTable(),
+                AreaOfInterestConfig.DEFAULT_TARGET_TABLE,
+                AreaOfInterestConfig.ID_COLUMN,
+                LayerConfig.AREA_OF_INTEREST_ID_COLUMN,
+                spec.geoTargetPrimaryKey(),
+                placeholders,
+                AreaOfInterestConfig.TERRITORY_LEVEL_3_ID_COLUMN);
+
+        Set<String> departedLevel3Ids = new HashSet<>();
+        geoTargetJdbc.query(sql, rs -> {
+            Object value = rs.getObject(1);
+            if (value != null) {
+                departedLevel3Ids.add(value.toString().trim());
+            }
+        }, orphanIds.toArray());
+        return departedLevel3Ids;
     }
 
     public Object normalizeId(Object id) {
