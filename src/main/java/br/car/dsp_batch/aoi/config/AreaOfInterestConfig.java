@@ -62,6 +62,10 @@ public class AreaOfInterestConfig {
         return QualifiedTable.parse(targetTable);
     }
 
+    public boolean usesSourceTerritoryLevel3Column() {
+        return territoryLevel3Column != null && !territoryLevel3Column.isBlank();
+    }
+
     public String resolveSyncKey() {
         if (syncKey != null && !syncKey.isBlank()) {
             return syncKey.trim();
@@ -83,7 +87,6 @@ public class AreaOfInterestConfig {
         requireQualifiedTable(targetTable);
         requireNonBlank("primary-key", primaryKey);
         requireNonBlank("creation-date-column", creationDateColumn);
-        requireNonBlank("territory-level-3-column", territoryLevel3Column);
         requireNonBlank("geometry-column", geometryColumn);
         if (srid == null || srid <= 0) {
             throw new IllegalStateException(
@@ -141,7 +144,9 @@ public class AreaOfInterestConfig {
         Set<String> required = new LinkedHashSet<>();
         required.add(primaryKey.trim());
         required.add(creationDateColumn.trim());
-        required.add(territoryLevel3Column.trim());
+        if (usesSourceTerritoryLevel3Column()) {
+            required.add(territoryLevel3Column.trim());
+        }
         if (totalAreaColumn != null && !totalAreaColumn.isBlank()) {
             required.add(totalAreaColumn.trim());
         }
