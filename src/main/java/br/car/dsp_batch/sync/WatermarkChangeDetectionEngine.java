@@ -1,11 +1,18 @@
 package br.car.dsp_batch.sync;
 
+import br.car.dsp_batch.aoi.config.AreaOfInterestConfig;
 import br.car.dsp_batch.geometry.GeometrySql;
+import br.car.dsp_batch.kpi.ddl.KpiMeasureTableDdlBuilder;
+import br.car.dsp_batch.layer.config.LayerConfig;
+import br.car.dsp_batch.layer.config.LayersProperties;
+import br.car.dsp_batch.layer.introspection.SchemaIntrospectionService;
+import br.car.dsp_batch.layer.metadata.QualifiedTable;
 import br.car.dsp_batch.temporal.TemporalType;
 import br.car.dsp_batch.temporal.WatermarkTemporalBridge;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.batch.core.scope.context.ChunkContext;
 import org.springframework.batch.item.ExecutionContext;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowCallbackHandler;
 import org.springframework.stereotype.Service;
@@ -30,9 +37,20 @@ import java.util.stream.Collectors;
 public class WatermarkChangeDetectionEngine {
 
     private final SyncStateRepository syncStateRepository;
+    private final LayersProperties layersProperties;
+    private final SchemaIntrospectionService schemaIntrospectionService;
 
     public WatermarkChangeDetectionEngine(SyncStateRepository syncStateRepository) {
+        this(syncStateRepository, null, null);
+    }
+
+    @Autowired
+    public WatermarkChangeDetectionEngine(SyncStateRepository syncStateRepository,
+                                          LayersProperties layersProperties,
+                                          SchemaIntrospectionService schemaIntrospectionService) {
         this.syncStateRepository = syncStateRepository;
+        this.layersProperties = layersProperties;
+        this.schemaIntrospectionService = schemaIntrospectionService;
     }
 
     public void detectChanges(JdbcTemplate sourceJdbc,
@@ -95,15 +113,13 @@ public class WatermarkChangeDetectionEngine {
         }
     }
 
+    /**
+     * Full primary-key orphan scans run on every job execution after the first successful
+     * incremental watermark exists. Skipped on the initial load to avoid reading the entire
+     * source when the geo-target is still empty.
+     */
     public boolean shouldRunOrphanCheck(SyncState state) {
-        if (state == null || state.watermarkLastEventAt() == null) {
-            return true;
-        }
-        Instant lastCheck = state.lastOrphanCheckAt();
-        if (lastCheck == null) {
-            return true;
-        }
-        return lastCheck.isBefore(Instant.now().minus(WatermarkSettings.ORPHAN_CHECK_INTERVAL));
+        return state != null && state.watermarkLastEventAt() != null;
     }
 
     Instant collectDeltaBboxes(JdbcTemplate sourceJdbc,
@@ -232,9 +248,10 @@ public class WatermarkChangeDetectionEngine {
         }
 
         captureDepartedTerritoriesFromOrphans(geoTargetJdbc, spec, orphans, jobContext);
+        deleteOrphanChildren(businessTargetJdbc, geoTargetJdbc, spec, orphans);
 
-        deleteRemovedRecords(
-                geoTargetJdbc, spec.geoTargetTable(), spec.geoTargetPrimaryKey(), orphans);
+        // Business database first. If the geo-target delete fails, the id stays there
+        // and the next orphan scan finds it again.
         if (businessTargetJdbc != null
                 && spec.businessTargetTable() != null
                 && !spec.businessTargetTable().isBlank()) {
@@ -244,7 +261,70 @@ public class WatermarkChangeDetectionEngine {
                     spec.businessTargetPrimaryKey(),
                     orphans);
         }
+        deleteRemovedRecords(
+                geoTargetJdbc, spec.geoTargetTable(), spec.geoTargetPrimaryKey(), orphans);
         return orphanBboxes;
+    }
+
+    /**
+     * Area-of-interest orphans only. KPI rows and layer features must go before the
+     * area row, or the following KPI job reinserts measures for an airport that no longer exists.
+     */
+    private void deleteOrphanChildren(JdbcTemplate businessTargetJdbc,
+                                      JdbcTemplate geoTargetJdbc,
+                                      WatermarkTableSpec spec,
+                                      Set<Object> orphans) {
+        if (schemaIntrospectionService == null
+                || !SyncKeys.AREA_OF_INTEREST.equals(spec.syncKey())) {
+            return;
+        }
+        deleteKpiMeasures(businessTargetJdbc, orphans);
+        deleteLayerFeatures(geoTargetJdbc, orphans);
+    }
+
+    private void deleteKpiMeasures(JdbcTemplate businessTargetJdbc, Set<Object> orphanIds) {
+        if (businessTargetJdbc == null) {
+            return;
+        }
+        QualifiedTable kpiTable = QualifiedTable.parse(KpiMeasureTableDdlBuilder.TABLE_NAME);
+        if (!schemaIntrospectionService.tableExists(businessTargetJdbc, kpiTable)) {
+            log.info("Table {} missing on the business database — KPI measures left untouched",
+                    kpiTable.qualified());
+            return;
+        }
+        int deleted = deleteByAreaOfInterestId(businessTargetJdbc, kpiTable, orphanIds);
+        log.info("Area-of-interest orphans: removed {} KPI measure(s)", deleted);
+    }
+
+    private void deleteLayerFeatures(JdbcTemplate geoTargetJdbc, Set<Object> orphanIds) {
+        if (geoTargetJdbc == null || layersProperties == null || layersProperties.getLayers() == null) {
+            return;
+        }
+        for (LayerConfig layer : layersProperties.getLayers()) {
+            QualifiedTable layerTable = layer.resolveTargetTable();
+            if (!schemaIntrospectionService.tableExists(geoTargetJdbc, layerTable)) {
+                log.info("Layer {} missing on the geo-target — features of the deleted area skipped",
+                        layerTable.qualified());
+                continue;
+            }
+            int deleted = deleteByAreaOfInterestId(geoTargetJdbc, layerTable, orphanIds);
+            log.info("Area-of-interest orphans: removed {} feature(s) from {}",
+                    deleted, layerTable.qualified());
+        }
+    }
+
+    private static int deleteByAreaOfInterestId(JdbcTemplate jdbc,
+                                                QualifiedTable table,
+                                                Set<Object> orphanIds) {
+        String placeholders = orphanIds.stream().map(id -> "?").collect(Collectors.joining(","));
+        String sql = "DELETE FROM " + quote(table.schema()) + "." + quote(table.table())
+                + " WHERE " + quote(LayerConfig.AREA_OF_INTEREST_ID_COLUMN)
+                + " IN (" + placeholders + ")";
+        return jdbc.update(sql, orphanIds.toArray());
+    }
+
+    private static String quote(String identifier) {
+        return "\"" + identifier.replace("\"", "\"\"") + "\"";
     }
 
     private Set<Object> fetchSourceIds(JdbcTemplate sourceJdbc, WatermarkTableSpec spec) {
@@ -327,11 +407,38 @@ public class WatermarkChangeDetectionEngine {
                                                        WatermarkTableSpec spec,
                                                        Set<Object> orphanIds,
                                                        ExecutionContext jobContext) {
-        String departedColumn = spec.geoTargetDepartedTerritoryColumn();
-        if (departedColumn == null || departedColumn.isBlank() || orphanIds.isEmpty()) {
+        if (orphanIds.isEmpty()) {
             return;
         }
 
+        String departedColumn = spec.geoTargetDepartedTerritoryColumn();
+        Set<String> departedLevel3Ids = new HashSet<>();
+        if (departedColumn != null && !departedColumn.isBlank()) {
+            departedLevel3Ids.addAll(queryDepartedLevel3FromColumn(
+                    geoTargetJdbc, spec, departedColumn, orphanIds));
+        } else if (isGeographicLayerSpec(spec)) {
+            departedLevel3Ids.addAll(queryDepartedLevel3FromLayerOrphans(
+                    geoTargetJdbc, spec, orphanIds));
+        } else {
+            return;
+        }
+
+        if (!departedLevel3Ids.isEmpty()) {
+            DepartedLevel3ContextSupport.merge(jobContext, departedLevel3Ids);
+            log.info("Orphan check: {} departed level 3 territor(ies) captured before delete",
+                    departedLevel3Ids.size());
+        }
+    }
+
+    private static boolean isGeographicLayerSpec(WatermarkTableSpec spec) {
+        String syncKey = spec.syncKey();
+        return syncKey != null && syncKey.startsWith(LayerConfig.TARGET_SCHEMA + "_");
+    }
+
+    private Set<String> queryDepartedLevel3FromColumn(JdbcTemplate geoTargetJdbc,
+                                                     WatermarkTableSpec spec,
+                                                     String departedColumn,
+                                                     Set<Object> orphanIds) {
         String placeholders = orphanIds.stream().map(id -> "?").collect(Collectors.joining(","));
         String sql = String.format(
                 "SELECT DISTINCT %s FROM %s WHERE %s IN (%s) AND %s IS NOT NULL",
@@ -348,12 +455,34 @@ public class WatermarkChangeDetectionEngine {
                 departedLevel3Ids.add(value.toString().trim());
             }
         }, orphanIds.toArray());
+        return departedLevel3Ids;
+    }
 
-        if (!departedLevel3Ids.isEmpty()) {
-            DepartedLevel3ContextSupport.merge(jobContext, departedLevel3Ids);
-            log.info("Orphan check: {} departed level 3 territor(ies) captured before delete",
-                    departedLevel3Ids.size());
-        }
+    private Set<String> queryDepartedLevel3FromLayerOrphans(JdbcTemplate geoTargetJdbc,
+                                                            WatermarkTableSpec spec,
+                                                            Set<Object> orphanIds) {
+        String placeholders = orphanIds.stream().map(id -> "?").collect(Collectors.joining(","));
+        String sql = String.format(
+                "SELECT DISTINCT aoi.%s FROM %s l"
+                        + " INNER JOIN %s aoi ON aoi.%s = l.%s"
+                        + " WHERE l.%s IN (%s) AND aoi.%s IS NOT NULL",
+                AreaOfInterestConfig.TERRITORY_LEVEL_3_ID_COLUMN,
+                spec.geoTargetTable(),
+                AreaOfInterestConfig.DEFAULT_TARGET_TABLE,
+                AreaOfInterestConfig.ID_COLUMN,
+                LayerConfig.AREA_OF_INTEREST_ID_COLUMN,
+                spec.geoTargetPrimaryKey(),
+                placeholders,
+                AreaOfInterestConfig.TERRITORY_LEVEL_3_ID_COLUMN);
+
+        Set<String> departedLevel3Ids = new HashSet<>();
+        geoTargetJdbc.query(sql, rs -> {
+            Object value = rs.getObject(1);
+            if (value != null) {
+                departedLevel3Ids.add(value.toString().trim());
+            }
+        }, orphanIds.toArray());
+        return departedLevel3Ids;
     }
 
     public Object normalizeId(Object id) {
