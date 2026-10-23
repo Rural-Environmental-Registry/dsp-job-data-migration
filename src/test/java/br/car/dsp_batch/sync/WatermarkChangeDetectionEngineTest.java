@@ -21,11 +21,24 @@ class WatermarkChangeDetectionEngineTest {
 
     @Test
     void shouldRunOrphanCheck_WhenNoState() {
-        assertTrue(engine.shouldRunOrphanCheck(null));
+        assertFalse(engine.shouldRunOrphanCheck(null));
     }
 
     @Test
-    void shouldRunOrphanCheck_WhenLastCheckRecent() {
+    void shouldRunOrphanCheck_WhenWatermarkNotYetSet() {
+        SyncState state = new SyncState(
+                "admin_unit_level_1",
+                "src.l1",
+                null,
+                null,
+                null,
+                null
+        );
+        assertFalse(engine.shouldRunOrphanCheck(state));
+    }
+
+    @Test
+    void shouldRunOrphanCheck_WhenWatermarkExists() {
         SyncState state = new SyncState(
                 "admin_unit_level_1",
                 "src.l1",
@@ -33,19 +46,6 @@ class WatermarkChangeDetectionEngineTest {
                 Instant.parse("2026-08-01T00:00:00Z"),
                 1L,
                 Instant.now()
-        );
-        assertFalse(engine.shouldRunOrphanCheck(state));
-    }
-
-    @Test
-    void shouldRunOrphanCheck_WhenLastCheckTooOld() {
-        SyncState state = new SyncState(
-                "admin_unit_level_1",
-                "src.l1",
-                Instant.parse("2026-08-01T00:00:00Z"),
-                Instant.parse("2026-08-01T00:00:00Z"),
-                1L,
-                Instant.now().minus(WatermarkSettings.ORPHAN_CHECK_INTERVAL).minusSeconds(1)
         );
         assertTrue(engine.shouldRunOrphanCheck(state));
     }

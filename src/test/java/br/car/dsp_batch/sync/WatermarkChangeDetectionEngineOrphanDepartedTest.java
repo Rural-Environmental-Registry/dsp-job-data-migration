@@ -54,7 +54,7 @@ class WatermarkChangeDetectionEngineOrphanDepartedTest {
                         Instant.parse("2026-01-01T00:00:00Z"),
                         Instant.parse("2026-01-01T00:00:00Z"),
                         1L,
-                        Instant.now().minus(WatermarkSettings.ORPHAN_CHECK_INTERVAL).minusSeconds(60)
+                        Instant.now()
                 )));
 
         doAnswer(invocation -> null).when(sourceJdbc).query(anyString(), any(RowCallbackHandler.class));
@@ -193,7 +193,7 @@ class WatermarkChangeDetectionEngineOrphanDepartedTest {
                         Instant.parse("2026-01-01T00:00:00Z"),
                         Instant.parse("2026-01-01T00:00:00Z"),
                         1L,
-                        Instant.now().minus(WatermarkSettings.ORPHAN_CHECK_INTERVAL).minusSeconds(60)
+                        Instant.now()
                 )));
 
         doAnswer(invocation -> null).when(sourceJdbc).query(anyString(), any(RowCallbackHandler.class));
@@ -285,7 +285,7 @@ class WatermarkChangeDetectionEngineOrphanDepartedTest {
                         Instant.parse("2026-01-01T00:00:00Z"),
                         Instant.parse("2026-01-01T00:00:00Z"),
                         1L,
-                        Instant.now().minus(WatermarkSettings.ORPHAN_CHECK_INTERVAL).minusSeconds(60)
+                        Instant.now()
                 )));
 
         engine.detectChanges(
@@ -312,7 +312,7 @@ class WatermarkChangeDetectionEngineOrphanDepartedTest {
                         Instant.parse("2026-01-01T00:00:00Z"),
                         Instant.parse("2026-01-01T00:00:00Z"),
                         1L,
-                        Instant.now().minus(WatermarkSettings.ORPHAN_CHECK_INTERVAL).minusSeconds(60)
+                        Instant.now()
                 )));
         doAnswer(invocation -> null).when(sourceJdbc).query(anyString(), any(RowCallbackHandler.class));
         doAnswer(invocation -> {

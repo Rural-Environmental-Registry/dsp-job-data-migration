@@ -113,15 +113,13 @@ public class WatermarkChangeDetectionEngine {
         }
     }
 
+    /**
+     * Full primary-key orphan scans run on every job execution after the first successful
+     * incremental watermark exists. Skipped on the initial load to avoid reading the entire
+     * source when the geo-target is still empty.
+     */
     public boolean shouldRunOrphanCheck(SyncState state) {
-        if (state == null || state.watermarkLastEventAt() == null) {
-            return true;
-        }
-        Instant lastCheck = state.lastOrphanCheckAt();
-        if (lastCheck == null) {
-            return true;
-        }
-        return lastCheck.isBefore(Instant.now().minus(WatermarkSettings.ORPHAN_CHECK_INTERVAL));
+        return state != null && state.watermarkLastEventAt() != null;
     }
 
     Instant collectDeltaBboxes(JdbcTemplate sourceJdbc,
