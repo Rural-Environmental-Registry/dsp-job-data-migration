@@ -2,6 +2,8 @@ package br.car.dsp_batch.geofile;
 
 import br.car.dsp_batch.aoi.config.AreaOfInterestConfig;
 import br.car.dsp_batch.batch.config.table.AdministrativeUnitTableProperties;
+import br.car.dsp_batch.layer.config.LayerConfig;
+import br.car.dsp_batch.layer.config.LayersProperties;
 import br.car.dsp_batch.sync.DepartedLevel3ContextSupport;
 import br.car.dsp_batch.sync.SyncKeys;
 import br.car.dsp_batch.sync.WatermarkContextKeys;
@@ -117,12 +119,44 @@ class GeoFileRegenerationFlagListenerTest {
     }
 
     @Test
+    void afterJob_FlagsTerritoriesWhenAnEnabledLayerJobCompletes() {
+        LayerConfig layer = new LayerConfig();
+        layer.setEnabled(true);
+        layer.setLayerName("zona-seguranca-300m");
+        layer.setSourceTable("src.zona");
+        layer.setPrimaryKey("id");
+        layer.setAreaOfInterestIdColumn("area_of_interest_id");
+        layer.setCreationDateColumn("created_at");
+
+        LayersProperties layersProperties = new LayersProperties();
+        layersProperties.setLayers(java.util.List.of(layer));
+
+        when(repository.markTerritoriesOfChangedLayerFeatures(
+                anyString(), anyString(), anyString(), anyString(), any()))
+                .thenReturn(new GeoFileRegenerationFlagRepository.DepartedTerritoryFlagResult(1, 2));
+        when(repository.markLevel3TerritoriesAndParents(
+                anyCollection(), anyString(), anyString()))
+                .thenReturn(new GeoFileRegenerationFlagRepository.DepartedTerritoryFlagResult(0, 0));
+
+        listener(layersProperties).afterJob(
+                execution(BatchStatus.COMPLETED, layer.resolveKey(), WATERMARK));
+
+        verify(repository).markTerritoriesOfChangedLayerFeatures(
+                "dsp.zona_seguranca_300m",
+                "dsp.area_of_interest",
+                "dsp.territory_level_3",
+                "dsp.territory_level_2",
+                WATERMARK);
+    }
+
+    @Test
     void afterJob_SkipsTheAreaOfInterestFlagsWhenItsConfigurationIsAbsent() {
         GeoFileRegenerationFlagListener listener = new GeoFileRegenerationFlagListener(
                 repository,
                 tableConfig("dsp.territory_level_2"),
                 tableConfig("dsp.territory_level_3"),
-                emptyProvider());
+                emptyProvider(),
+                emptyLayersProvider());
 
         listener.afterJob(execution(BatchStatus.COMPLETED, SyncKeys.AREA_OF_INTEREST, WATERMARK));
 
@@ -133,13 +167,18 @@ class GeoFileRegenerationFlagListenerTest {
     }
 
     private GeoFileRegenerationFlagListener listener() {
+        return listener(null);
+    }
+
+    private GeoFileRegenerationFlagListener listener(LayersProperties layersProperties) {
         AreaOfInterestConfig aoiConfig = mock(AreaOfInterestConfig.class);
         when(aoiConfig.getTargetTable()).thenReturn("dsp.area_of_interest");
         return new GeoFileRegenerationFlagListener(
                 repository,
                 tableConfig("dsp.territory_level_2"),
                 tableConfig("dsp.territory_level_3"),
-                provider(aoiConfig));
+                provider(aoiConfig),
+                layersProperties == null ? emptyLayersProvider() : layersProvider(layersProperties));
     }
 
     private static AdministrativeUnitTableProperties tableConfig(String targetTable) {
@@ -173,6 +212,20 @@ class GeoFileRegenerationFlagListenerTest {
     private static ObjectProvider<AreaOfInterestConfig> emptyProvider() {
         ObjectProvider<AreaOfInterestConfig> provider = mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(null);
+        return provider;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static ObjectProvider<LayersProperties> emptyLayersProvider() {
+        ObjectProvider<LayersProperties> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(null);
+        return provider;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static ObjectProvider<LayersProperties> layersProvider(LayersProperties properties) {
+        ObjectProvider<LayersProperties> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(properties);
         return provider;
     }
 }
