@@ -5,6 +5,7 @@ import br.car.dsp_batch.batch.config.table.AdministrativeUnitTableProperties;
 import br.car.dsp_batch.layer.config.LayerConfig;
 import br.car.dsp_batch.layer.config.LayersProperties;
 import br.car.dsp_batch.sync.DepartedLevel3ContextSupport;
+import br.car.dsp_batch.sync.ReconciliationContextKeys;
 import br.car.dsp_batch.sync.SyncKeys;
 import br.car.dsp_batch.sync.WatermarkContextKeys;
 import org.junit.jupiter.api.Test;
@@ -120,13 +121,7 @@ class GeoFileRegenerationFlagListenerTest {
 
     @Test
     void afterJob_FlagsTerritoriesWhenAnEnabledLayerJobCompletes() {
-        LayerConfig layer = new LayerConfig();
-        layer.setEnabled(true);
-        layer.setLayerName("zona-seguranca-300m");
-        layer.setSourceTable("src.zona");
-        layer.setPrimaryKey("id");
-        layer.setAreaOfInterestIdColumn("area_of_interest_id");
-        layer.setCreationDateColumn("created_at");
+        LayerConfig layer = enabledLayer();
 
         LayersProperties layersProperties = new LayersProperties();
         layersProperties.setLayers(java.util.List.of(layer));
@@ -150,6 +145,45 @@ class GeoFileRegenerationFlagListenerTest {
     }
 
     @Test
+    void afterJob_ReconciliationFlagsOnlyDepartedTerritories() {
+        LayerConfig layer = enabledLayer();
+        LayersProperties layersProperties = new LayersProperties();
+        layersProperties.setLayers(java.util.List.of(layer));
+
+        when(repository.markLevel3TerritoriesAndParents(
+                anyCollection(), anyString(), anyString()))
+                .thenReturn(new GeoFileRegenerationFlagRepository.DepartedTerritoryFlagResult(1, 1));
+
+        JobExecution jobExecution = execution(BatchStatus.COMPLETED, layer.resolveKey(), null);
+        jobExecution.getExecutionContext().put(ReconciliationContextKeys.ORPHAN_RECONCILIATION, true);
+        DepartedLevel3ContextSupport.merge(jobExecution.getExecutionContext(), Set.of("l3-orphan"));
+
+        listener(layersProperties).afterJob(jobExecution);
+
+        verify(repository).markLevel3TerritoriesAndParents(
+                Set.of("l3-orphan"),
+                "dsp.territory_level_3",
+                "dsp.territory_level_2");
+        verify(repository, never()).markTerritoriesOfChangedLayerFeatures(
+                anyString(), anyString(), anyString(), anyString(), any());
+        verify(repository, never()).markChangedTerritories(anyString(), any());
+        verify(repository, never()).markParentsOfChangedAreasOfInterest(
+                anyString(), anyString(), anyString(), anyString(), any());
+    }
+
+    @Test
+    void afterJob_ReconciliationLevel2DoesNotTreatMissingWatermarkAsFirstLoad() {
+        JobExecution jobExecution = execution(BatchStatus.COMPLETED, SyncKeys.ADMIN_UNIT_LEVEL_2, null);
+        jobExecution.getExecutionContext().put(ReconciliationContextKeys.ORPHAN_RECONCILIATION, true);
+
+        listener().afterJob(jobExecution);
+
+        verify(repository, never()).markChangedTerritories(anyString(), any());
+        verify(repository, never()).markLevel3TerritoriesAndParents(
+                anyCollection(), anyString(), anyString());
+    }
+
+    @Test
     void afterJob_SkipsTheAreaOfInterestFlagsWhenItsConfigurationIsAbsent() {
         GeoFileRegenerationFlagListener listener = new GeoFileRegenerationFlagListener(
                 repository,
@@ -164,6 +198,17 @@ class GeoFileRegenerationFlagListenerTest {
                 anyString(), anyString(), anyString(), anyString(), eq(WATERMARK));
         verify(repository, never()).markLevel3TerritoriesAndParents(
                 anyCollection(), anyString(), anyString());
+    }
+
+    private static LayerConfig enabledLayer() {
+        LayerConfig layer = new LayerConfig();
+        layer.setEnabled(true);
+        layer.setLayerName("zona-seguranca-300m");
+        layer.setSourceTable("src.zona");
+        layer.setPrimaryKey("id");
+        layer.setAreaOfInterestIdColumn("area_of_interest_id");
+        layer.setCreationDateColumn("created_at");
+        return layer;
     }
 
     private GeoFileRegenerationFlagListener listener() {

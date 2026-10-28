@@ -49,8 +49,6 @@ public class SyncWatermarkCommitListener implements JobExecutionListener {
         String proposed = context.getString(WatermarkContextKeys.PROPOSED_WATERMARK, null);
         Instant watermark = proposed != null ? Instant.parse(proposed) : null;
 
-        Boolean orphanCheckRan = (Boolean) context.get(WatermarkContextKeys.ORPHAN_CHECK_RAN);
-
         if (watermark != null) {
             syncStateRepository.advanceWatermark(
                     syncKey,
@@ -59,11 +57,6 @@ public class SyncWatermarkCommitListener implements JobExecutionListener {
                     jobExecution.getId()
             );
             log.info("Watermark advanced for syncKey={} to {}", syncKey, watermark);
-        }
-
-        if (Boolean.TRUE.equals(orphanCheckRan)) {
-            syncStateRepository.markOrphanCheck(syncKey, sourceTable);
-            log.info("Orphan check timestamp updated for syncKey={}", syncKey);
         }
     }
 }
