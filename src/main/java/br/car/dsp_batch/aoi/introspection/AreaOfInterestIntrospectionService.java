@@ -79,25 +79,13 @@ public class AreaOfInterestIntrospectionService {
         String updatedAtColumnName = updatedAtColumn == null ? null : updatedAtColumn.sourceColumn();
         String territoryLevel3Column = requireConfiguredColumn(
                 allColumns, config.getTerritoryLevel3Column(), "territory-level-3-column");
-        String totalAreaColumn = requireConfiguredColumn(
+        String totalAreaColumn = resolveOptionalConfiguredColumn(
                 allColumns, config.getTotalAreaColumn(), "total-area-column");
         GeometryInfo geometryInfo = resolveGeometry(sourceJdbc, source, allColumns, config.getGeometryColumn());
 
         List<String> additionalColumns = normalizeOptionalColumns(config.getAdditionalColumns());
-        List<String> businessOnlyColumns = normalizeOptionalColumns(config.getBusinessOnlyPersistColumns());
         validateOptionalColumnsExist(allColumns, additionalColumns, "additional-columns");
-        validateOptionalColumnsExist(allColumns, businessOnlyColumns, "business-only-persist-columns");
-        rejectCanonicalTargetNameCollisions(
-                source,
-                allColumns,
-                primaryKey,
-                creationDateColumnName,
-                updatedAtColumnName,
-                territoryLevel3Column,
-                totalAreaColumn,
-                geometryInfo.columnName(),
-                additionalColumns,
-                businessOnlyColumns);
+        rejectCanonicalTargetNameCollisions(source, additionalColumns);
 
         int srid = resolveSrid(sourceJdbc, source, geometryInfo, config.getSrid());
         requireExistingTargetCreatedAtTimestamptz(targetJdbcTemplate, target);
@@ -111,8 +99,7 @@ public class AreaOfInterestIntrospectionService {
                 territoryLevel3Column,
                 totalAreaColumn,
                 geometryInfo.columnName(),
-                additionalColumns,
-                businessOnlyColumns);
+                additionalColumns);
         List<IndexMetadata> indexes = filterIndexes(
                 fetchIndexes(sourceJdbc, source), migratedColumns);
 
@@ -150,7 +137,6 @@ public class AreaOfInterestIntrospectionService {
                 geometryInfo.columnName(),
                 srid,
                 migratedColumns,
-                businessOnlyColumns,
                 indexes,
                 config.getWhereClause()
         );
@@ -191,8 +177,7 @@ public class AreaOfInterestIntrospectionService {
                                                        String territoryLevel3Column,
                                                        String totalAreaColumn,
                                                        String geometryColumn,
-                                                       List<String> additionalColumns,
-                                                       List<String> businessOnlyColumns) {
+                                                       List<String> additionalColumns) {
         Map<String, ColumnMetadata> byName = new LinkedHashMap<>();
         for (ColumnMetadata column : allColumns) {
             byName.put(column.name(), column);
@@ -205,9 +190,10 @@ public class AreaOfInterestIntrospectionService {
             orderedNames.add(updatedAtColumn);
         }
         orderedNames.add(territoryLevel3Column);
-        orderedNames.add(totalAreaColumn);
+        if (totalAreaColumn != null) {
+            orderedNames.add(totalAreaColumn);
+        }
         orderedNames.addAll(additionalColumns);
-        orderedNames.addAll(businessOnlyColumns);
         orderedNames.add(geometryColumn);
 
         Set<String> seen = new LinkedHashSet<>();
@@ -276,30 +262,13 @@ public class AreaOfInterestIntrospectionService {
         }
     }
 
+    /**
+     * Rejects extras whose target name collides with a canonical column
+     * ({@code id}, {@code geom}, {@code updated_at}, etc.).
+     * An unmapped source column with the same name is ignored.
+     */
     private void rejectCanonicalTargetNameCollisions(QualifiedTable table,
-                                                     List<ColumnMetadata> allColumns,
-                                                     String primaryKey,
-                                                     String creationDateColumn,
-                                                     String updatedAtColumn,
-                                                     String territoryLevel3Column,
-                                                     String totalAreaColumn,
-                                                     String geometryColumn,
-                                                     List<String> additionalColumns,
-                                                     List<String> businessOnlyColumns) {
-        rejectReservedNameCollision(table, allColumns, ID_COLUMN, primaryKey, "primary-key");
-        rejectReservedNameCollision(
-                table, allColumns, CREATED_AT_COLUMN, creationDateColumn, "creation-date-column");
-        if (updatedAtColumn != null) {
-            rejectReservedNameCollision(
-                    table, allColumns, UPDATED_AT_COLUMN, updatedAtColumn, "updated-at-column");
-        }
-        rejectReservedNameCollision(
-                table, allColumns, TERRITORY_LEVEL_3_ID_COLUMN, territoryLevel3Column,
-                "territory-level-3-column");
-        rejectReservedNameCollision(
-                table, allColumns, AREA_COLUMN, totalAreaColumn, "total-area-column");
-        rejectGeomNameCollision(table, allColumns, geometryColumn);
-
+                                                     List<String> additionalColumns) {
         for (String additionalColumn : additionalColumns) {
             if (AreaOfInterestConfig.CANONICAL_TARGET_COLUMNS.contains(additionalColumn)) {
                 throw new IllegalStateException(
@@ -307,65 +276,6 @@ public class AreaOfInterestIntrospectionService {
                                 + "' collides with a canonical target column on "
                                 + table.qualified() + ".");
             }
-        }
-        for (String businessOnlyColumn : businessOnlyColumns) {
-            if (AreaOfInterestConfig.CANONICAL_TARGET_COLUMNS.contains(businessOnlyColumn)) {
-                throw new IllegalStateException(
-                        "business-only-persist-columns entry '" + businessOnlyColumn
-                                + "' collides with a canonical target column on "
-                                + table.qualified() + ".");
-            }
-        }
-
-        Set<String> migrated = new LinkedHashSet<>();
-        migrated.add(primaryKey);
-        migrated.add(creationDateColumn);
-        if (updatedAtColumn != null) {
-            migrated.add(updatedAtColumn);
-        }
-        migrated.add(territoryLevel3Column);
-        migrated.add(totalAreaColumn);
-        migrated.add(geometryColumn);
-        migrated.addAll(additionalColumns);
-        migrated.addAll(businessOnlyColumns);
-
-        Set<String> mappedTargets = AreaOfInterestConfig.CANONICAL_TARGET_COLUMNS;
-        for (String sourceName : migrated) {
-            boolean isCanonicalSource = sourceName.equals(primaryKey)
-                    || sourceName.equals(creationDateColumn)
-                    || sourceName.equals(updatedAtColumn)
-                    || sourceName.equals(territoryLevel3Column)
-                    || sourceName.equals(totalAreaColumn)
-                    || sourceName.equals(geometryColumn);
-            if (isCanonicalSource) {
-                continue;
-            }
-            if (mappedTargets.contains(sourceName)) {
-                throw new IllegalStateException(
-                        "Table " + table.qualified()
-                                + " cannot migrate extra column '" + sourceName
-                                + "' because that name is reserved for a canonical target column.");
-            }
-        }
-    }
-
-    private void rejectReservedNameCollision(QualifiedTable table,
-                                             List<ColumnMetadata> columns,
-                                             String reservedTargetName,
-                                             String mappedSourceColumn,
-                                             String configField) {
-        if (reservedTargetName.equals(mappedSourceColumn)) {
-            return;
-        }
-        boolean conflict = columns.stream()
-                .anyMatch(column -> reservedTargetName.equals(column.name()));
-        if (conflict) {
-            throw new IllegalStateException(
-                    "Table " + table.qualified()
-                            + " has a column named '" + reservedTargetName
-                            + "' while " + configField + " is '" + mappedSourceColumn
-                            + "'. Rename that attribute on the source, or set " + configField + ": "
-                            + reservedTargetName + " if that is the column to migrate.");
         }
     }
 
@@ -411,22 +321,6 @@ public class AreaOfInterestIntrospectionService {
         if (!geometryTyped) {
             throw new IllegalStateException(
                     "geometry-column '" + name + "' exists but is not geometry/geography.");
-        }
-    }
-
-    private void rejectGeomNameCollision(QualifiedTable table,
-                                         List<ColumnMetadata> columns,
-                                         String geometryColumnName) {
-        if (GEOMETRY_COLUMN.equals(geometryColumnName)) {
-            return;
-        }
-        boolean conflict = columns.stream()
-                .anyMatch(column -> !column.geometry() && GEOMETRY_COLUMN.equals(column.name()));
-        if (conflict) {
-            throw new IllegalStateException(
-                    "Table " + table.qualified()
-                            + " has a non-geometry column named '" + GEOMETRY_COLUMN
-                            + "' while the geometry to migrate is '" + geometryColumnName + "'.");
         }
     }
 
@@ -562,6 +456,15 @@ public class AreaOfInterestIntrospectionService {
         }
 
         return new IndexMetadata(indexName, columns, method, unique);
+    }
+
+    private String resolveOptionalConfiguredColumn(List<ColumnMetadata> columns,
+                                                   String configured,
+                                                   String field) {
+        if (configured == null || configured.isBlank()) {
+            return null;
+        }
+        return requireConfiguredColumn(columns, configured, field);
     }
 
     private String requireConfiguredColumn(List<ColumnMetadata> columns,

@@ -1,6 +1,5 @@
 package br.car.dsp_batch.batch.config;
 
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -38,30 +37,6 @@ public interface JobTableConfig {
      * Must include the primary key column.
      */
     List<String> getPersistColumns();
-
-    /**
-     * Extra columns written only to the business target ({@code dsp-db}).
-     * Use for KPI measure columns (e.g. {@code theme_1}) that must not go to the exhibition DB.
-     */
-    default List<String> getBusinessOnlyPersistColumns() {
-        return Collections.emptyList();
-    }
-
-    /**
-     * {@link #getPersistColumns()} plus {@link #getBusinessOnlyPersistColumns()} (no duplicates).
-     */
-    default List<String> getAllBusinessPersistColumns() {
-        List<String> merged = new ArrayList<>(getPersistColumns());
-        List<String> businessOnly = getBusinessOnlyPersistColumns();
-        if (businessOnly != null) {
-            for (String column : businessOnly) {
-                if (column != null && !column.isBlank() && !merged.contains(column)) {
-                    merged.add(column);
-                }
-            }
-        }
-        return merged;
-    }
 
     /** GeoServer / GeoWebCache layer name. */
     String getLayerName();

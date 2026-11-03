@@ -9,6 +9,7 @@ import br.car.dsp_batch.layer.dto.LayerFeatureRecord;
 import br.car.dsp_batch.layer.introspection.SchemaIntrospectionService;
 import br.car.dsp_batch.layer.metadata.LayerMetadataRegistry;
 import br.car.dsp_batch.layer.partitioner.DeferredLayerPartitioner;
+import br.car.dsp_batch.geofile.GeoFileRegenerationFlagListener;
 import br.car.dsp_batch.sync.SyncWatermarkCommitListener;
 import br.car.dsp_batch.sync.WatermarkChangeDetectionEngine;
 import br.car.dsp_batch.sync.SyncStateRepository;
@@ -57,6 +58,7 @@ public class LayerMigrationJobFactory {
     private final ParallelizationMonitorListener parallelizationMonitorListener;
     private final ItemReader<LayerFeatureRecord> layerFeatureReader;
     private final ItemWriter<LayerFeatureRecord> layerFeatureWriter;
+    private final GeoFileRegenerationFlagListener geoFileRegenerationFlagListener;
 
     public LayerMigrationJobFactory(
             JobRepository jobRepository,
@@ -73,7 +75,8 @@ public class LayerMigrationJobFactory {
             ParallelizationConfig parallelizationConfig,
             ParallelizationMonitorListener parallelizationMonitorListener,
             @Qualifier("layerFeatureReader") ItemReader<LayerFeatureRecord> layerFeatureReader,
-            @Qualifier("layerFeatureWriter") ItemWriter<LayerFeatureRecord> layerFeatureWriter) {
+            @Qualifier("layerFeatureWriter") ItemWriter<LayerFeatureRecord> layerFeatureWriter,
+            GeoFileRegenerationFlagListener geoFileRegenerationFlagListener) {
         this.jobRepository = jobRepository;
         this.transactionManager = transactionManager;
         this.sourceDataSource = sourceDataSource;
@@ -89,6 +92,7 @@ public class LayerMigrationJobFactory {
         this.parallelizationMonitorListener = parallelizationMonitorListener;
         this.layerFeatureReader = layerFeatureReader;
         this.layerFeatureWriter = layerFeatureWriter;
+        this.geoFileRegenerationFlagListener = geoFileRegenerationFlagListener;
     }
 
     public Job createJob(LayerConfig config) {
@@ -102,6 +106,7 @@ public class LayerMigrationJobFactory {
 
         return new JobBuilder(jobName, jobRepository)
                 .listener(watermarkCommitListener)
+                .listener(geoFileRegenerationFlagListener)
                 .start(setupStep)
                 .next(changeDetectionStep)
                 .next(changeDecider)

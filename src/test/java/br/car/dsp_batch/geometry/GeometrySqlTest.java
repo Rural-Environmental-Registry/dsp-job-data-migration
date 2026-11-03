@@ -38,6 +38,27 @@ class GeometrySqlTest {
     }
 
     @Test
+    void transform_WrapsExpressionWithTargetSrid() {
+        assertEquals(
+                "public.ST_Transform(the_geom, 4674)",
+                GeometrySql.transform("the_geom", 4674)
+        );
+    }
+
+    @Test
+    void transform_RejectsInvalidSrid() {
+        assertThrows(IllegalArgumentException.class, () -> GeometrySql.transform("geom", 0));
+    }
+
+    @Test
+    void areaGeographySquareMetres_TransformsToWgs84BeforeGeographyCast() {
+        assertEquals(
+                "public.ST_Area(public.ST_Transform(ST_Force2D(\"geom\"), 4326)::geography)",
+                GeometrySql.areaGeographySquareMetres("\"geom\"")
+        );
+    }
+
+    @Test
     void asGeoJsonText2d_Forces2dBeforeGeoJson() {
         String sql = GeometrySql.asGeoJsonText2d("geom");
 

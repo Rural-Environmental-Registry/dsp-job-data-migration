@@ -32,6 +32,29 @@ public final class GeometrySql {
     }
 
     /**
+     * Reprojects the geometry to the target SRID (same contract for UA, AOI, and layers).
+     */
+    public static String transform(String geometryExpression, int srid) {
+        requireGeometryExpression(geometryExpression);
+        if (srid <= 0) {
+            throw new IllegalArgumentException("srid must be a positive integer");
+        }
+        return "public.ST_Transform(" + geometryExpression + ", " + srid + ")";
+    }
+
+    /** SRID WGS 84 (lon/lat); required before casting to {@code geography} for geodesic area. */
+    public static final int WGS84_SRID = 4326;
+
+    /**
+     * Geodesic area in square metres. {@code geography} only accepts lon/lat; geometries in other SRIDs
+     * must be transformed first (same pattern as theme SQL in application profiles).
+     */
+    public static String areaGeographySquareMetres(String geometryExpression) {
+        requireGeometryExpression(geometryExpression);
+        return "public.ST_Area(" + transform(force2d(geometryExpression), WGS84_SRID) + "::geography)";
+    }
+
+    /**
      * GeoJSON text of a 2D geometry (Z/M dropped).
      */
     public static String asGeoJsonText2d(String geometryExpression) {

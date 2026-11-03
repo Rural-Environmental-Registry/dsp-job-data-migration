@@ -21,6 +21,7 @@ import java.sql.SQLException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -61,19 +62,27 @@ public class AdministrativeUnitGeoserverReader
                                                     Instant watermark,
                                                     TemporalColumnSpecs temporalColumns) {
         String partitionColumn = tableConfig.getPartitionColumn();
+        String primaryKey = tableConfig.getPrimaryKey();
         String geom = tableConfig.getGeometryColumn();
-        List<String> persistColumns = new ArrayList<>(tableConfig.getAllBusinessPersistColumns());
+        List<String> persistColumns = new ArrayList<>(tableConfig.getPersistColumns());
 
         String selectColumns = String.join(", ", persistColumns);
 
-        // Ensures the partition column is included in the SELECT clause,
-        // even if it is not listed in persist-columns.
-        if (!persistColumns.contains(partitionColumn)) {
+        // The partition column may repeat the same text. The primary key
+        // breaks the tie; otherwise the next page drops rows equal to the last one read.
+        boolean tieBreakWithPrimaryKey = primaryKey != null
+                && !primaryKey.isBlank()
+                && !primaryKey.equals(partitionColumn);
+
+        if (partitionColumn != null && !partitionColumn.isBlank() && !persistColumns.contains(partitionColumn)) {
             selectColumns = selectColumns + ", " + partitionColumn;
+        }
+        if (tieBreakWithPrimaryKey && !persistColumns.contains(primaryKey)) {
+            selectColumns = selectColumns + ", " + primaryKey;
         }
 
         int srid = tableConfig.getSrid();
-        String transformedGeom = "public.ST_Transform(" + geom + ", " + srid + ")";
+        String transformedGeom = GeometrySql.transform(geom, srid);
 
         PostgresPagingQueryProvider queryProvider = new PostgresPagingQueryProvider();
         queryProvider.setSelectClause(
@@ -114,8 +123,11 @@ public class AdministrativeUnitGeoserverReader
 
         queryProvider.setWhereClause(where.toString());
 
-        Map<String, Order> sortKeys = new HashMap<>();
+        Map<String, Order> sortKeys = new LinkedHashMap<>();
         sortKeys.put(partitionColumn, Order.ASCENDING);
+        if (tieBreakWithPrimaryKey) {
+            sortKeys.put(primaryKey, Order.ASCENDING);
+        }
         queryProvider.setSortKeys(sortKeys);
 
         return queryProvider;
@@ -144,7 +156,7 @@ public class AdministrativeUnitGeoserverReader
                 }
             }
 
-            for (String column : tableConfig.getAllBusinessPersistColumns()) {
+            for (String column : tableConfig.getPersistColumns()) {
                 String udt = udtByLabel.get(column.toLowerCase(Locale.ROOT));
                 if (udt != null && TemporalTypeClassifier.isTemporal(udt)) {
                     dto.putAttribute(column, CommonTemporalHandler.read(rs, column, udt));
