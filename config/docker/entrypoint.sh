@@ -115,7 +115,7 @@ case "$MODE" in
     WRAPPER="/tmp/dsp-migration-run.sh"
     cat >"$WRAPPER" <<'EOF'
 #!/bin/sh
-JAVA_BIN="java ${JAVA_OPTS:--XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0} -jar /app/app.jar"
+JAVA_BIN="java ${JAVA_OPTS:--XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0} -jar /app/app.jar --execution-jobs.reconciliation-jobs=true"
 lock="/tmp/dsp-migration-sync.lock"
 exec 9>"$lock"
 if ! flock -n 9; then

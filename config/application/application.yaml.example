@@ -56,6 +56,12 @@ server:
   port: 8086
 
 batch:
+  reconciliation:
+    batch-size: 5000
+    delete-batch-size: 1000
+    grid-size: 4
+    thread-pool-size: 4
+    skip-when-target-empty: true
   # Product default for TIMESTAMP/DATE watermark columns without offset.
   # Ignored when the source column is timestamptz. Override only when naive
   # timestamps are stored in another zone (e.g. America/Santiago).
@@ -215,6 +221,8 @@ execution-jobs:
   area-of-interest-geoserver-job: true
   layer-jobs: true
   kpi-job: true
+  # Orphan reconciliation: false here; continuous supercronic passes --execution-jobs.reconciliation-jobs=true
+  reconciliation-jobs: false
 
 logging:
   level:

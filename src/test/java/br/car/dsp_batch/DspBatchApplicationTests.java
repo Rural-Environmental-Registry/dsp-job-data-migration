@@ -26,7 +26,10 @@ import org.springframework.test.context.TestPropertySource;
 		"execution-jobs.admin-unit-level-1-geoserver-job=false",
 		"execution-jobs.admin-unit-level-2-geoserver-job=false",
 		"execution-jobs.admin-unit-level-3-geoserver-job=false",
-		"execution-jobs.area-of-interest-geoserver-job=false"
+		"execution-jobs.area-of-interest-geoserver-job=false",
+		"execution-jobs.reconciliation-jobs=false",
+		"execution-jobs.kpi-job=false",
+		"execution-jobs.layer-jobs=false"
 })
 class DspBatchApplicationTests {
 
