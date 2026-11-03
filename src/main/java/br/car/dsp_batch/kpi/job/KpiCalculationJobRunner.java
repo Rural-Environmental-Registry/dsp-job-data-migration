@@ -14,7 +14,7 @@ import org.springframework.stereotype.Component;
  */
 @Slf4j
 @Component
-@Order(3)
+@Order(4)
 public class KpiCalculationJobRunner implements CommandLineRunner {
 
     private final JobLauncher jobLauncher;

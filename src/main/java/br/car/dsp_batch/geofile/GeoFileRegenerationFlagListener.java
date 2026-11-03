@@ -5,6 +5,7 @@ import br.car.dsp_batch.batch.config.table.AdministrativeUnitTableProperties;
 import br.car.dsp_batch.layer.config.LayerConfig;
 import br.car.dsp_batch.layer.config.LayersProperties;
 import br.car.dsp_batch.sync.DepartedLevel3ContextSupport;
+import br.car.dsp_batch.sync.ReconciliationContextKeys;
 import br.car.dsp_batch.sync.SyncKeys;
 import br.car.dsp_batch.sync.WatermarkContextKeys;
 import lombok.extern.slf4j.Slf4j;
@@ -71,6 +72,11 @@ public class GeoFileRegenerationFlagListener implements JobExecutionListener {
         }
 
         Instant previousWatermark = readPreviousWatermark(jobExecution);
+        if (isOrphanReconciliation(jobExecution)) {
+            markDepartedTerritoriesFromOrphans(jobExecution, syncKey);
+            return;
+        }
+
         switch (syncKey) {
             case SyncKeys.ADMIN_UNIT_LEVEL_2 -> markTerritoryLevel(
                     syncKey, level2TableConfig.getTargetTable(), previousWatermark);
@@ -86,6 +92,38 @@ public class GeoFileRegenerationFlagListener implements JobExecutionListener {
                 }
             }
         }
+    }
+
+    private static boolean isOrphanReconciliation(JobExecution jobExecution) {
+        return Boolean.TRUE.equals(
+                jobExecution.getExecutionContext().get(ReconciliationContextKeys.ORPHAN_RECONCILIATION));
+    }
+
+    /**
+     * Reconciliation does not carry a change-detection watermark. Using a null watermark
+     * here would flag every L2/L3 (first-load rule). Only territories that lost a feature
+     * or AOI in this run should be marked.
+     */
+    private void markDepartedTerritoriesFromOrphans(JobExecution jobExecution, String syncKey) {
+        Set<String> departedLevel3Ids = DepartedLevel3ContextSupport.read(jobExecution.getExecutionContext());
+        if (departedLevel3Ids.isEmpty()) {
+            log.info(
+                    "Reconciliation job had no departed level 3 territor(ies) — geo file flags unchanged (syncKey={})",
+                    syncKey);
+            return;
+        }
+
+        var departedResult = flagRepository.markLevel3TerritoriesAndParents(
+                departedLevel3Ids,
+                level3TableConfig.getTargetTable(),
+                level2TableConfig.getTargetTable());
+        log.info(
+                "Flagged {} level 2 and {} level 3 row(s) from orphan deletions "
+                        + "(syncKey={}, departedLevel3Count={})",
+                departedResult.level2Flagged(),
+                departedResult.level3Flagged(),
+                syncKey,
+                departedLevel3Ids.size());
     }
 
     private static boolean isLayerSyncKey(String syncKey) {

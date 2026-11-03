@@ -53,6 +53,12 @@ server:
 
 batch:
   source-timezone: America/Sao_Paulo
+  reconciliation:
+    batch-size: 5000
+    delete-batch-size: 1000
+    grid-size: 4
+    thread-pool-size: 4
+    skip-when-target-empty: true
   admin-unit:
     level-1:
       source-table: source_admin_units.source_l1_continents
@@ -191,6 +197,7 @@ execution-jobs:
   admin-unit-level-3-geoserver-job: true
   area-of-interest-geoserver-job: true
   layer-jobs: true
+  reconciliation-jobs: false
 
 logging:
   level:
