@@ -75,6 +75,28 @@ class AreaOfInterestIntrospectionServiceTest {
     }
 
     @Test
+    void introspect_WorksWithoutTerritoryLevel3SourceColumn() {
+        AreaOfInterestConfig config = baseConfig();
+        config.setTerritoryLevel3Column(null);
+        config.setUpdatedAtColumn(null);
+        config.setTotalAreaColumn(null);
+        config.setAdditionalColumns(List.of());
+
+        stubColumns(
+                column("id", "int8", false),
+                column("creation_date", "timestamptz", false),
+                column("geom", "geometry", true)
+        );
+        stubGeometryColumnLookup("geom", 4674, "MULTIPOLYGON");
+        stubEmptyIndexes();
+
+        AreaOfInterestTableMetadata metadata = service.introspect(sourceJdbc, config);
+
+        assertFalse(metadata.usesSourceTerritoryLevel3Column());
+        assertTrue(metadata.targetNonGeometryColumnNames().contains("territory_level_3_id"));
+    }
+
+    @Test
     void introspect_RejectsCreatedAtInAdditionalColumns() {
         AreaOfInterestConfig config = baseConfig();
         config.setCreationDateColumn("creation_date");
