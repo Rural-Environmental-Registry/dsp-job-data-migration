@@ -23,8 +23,9 @@ class GeoFileRegenerationFlagRepositoryTest {
     private static final Instant WATERMARK = Instant.parse("2026-03-01T00:00:00Z");
 
     private final JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
+    private final JdbcTemplate geoJdbcTemplate = mock(JdbcTemplate.class);
     private final GeoFileRegenerationFlagRepository repository =
-            new GeoFileRegenerationFlagRepository(jdbcTemplate);
+            new GeoFileRegenerationFlagRepository(jdbcTemplate, geoJdbcTemplate);
 
     @Test
     void markChangedTerritories_FlagsEveryRowOnFirstLoad() {

@@ -29,6 +29,9 @@ public class AreaOfInterestConfig {
     public static final String AREA_COLUMN = "area";
     public static final String GEOMETRY_COLUMN = "geom";
 
+    /** Default qualified table on business and geo-target databases. */
+    public static final String DEFAULT_TARGET_TABLE = "dsp.area_of_interest";
+
     public static final Set<String> CANONICAL_TARGET_COLUMNS = Set.of(
             ID_COLUMN,
             CREATED_AT_COLUMN,
@@ -39,7 +42,7 @@ public class AreaOfInterestConfig {
     );
 
     private String sourceTable;
-    private String targetTable = "dsp.area_of_interest";
+    private String targetTable = DEFAULT_TARGET_TABLE;
     private String primaryKey;
     private String creationDateColumn;
     private String updatedAtColumn;

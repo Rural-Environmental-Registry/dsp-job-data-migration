@@ -5,11 +5,20 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
+import br.car.dsp_batch.aoi.config.AreaOfInterestConfig;
+import br.car.dsp_batch.layer.config.LayerConfig;
+
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
+
+import org.springframework.jdbc.core.RowCallbackHandler;
 
 /**
  * Turns {@code requires_s3_file_regeneration} on for the territories a migration run touched,
@@ -23,10 +32,13 @@ import java.util.stream.Collectors;
 public class GeoFileRegenerationFlagRepository {
 
     private final JdbcTemplate targetJdbcTemplate;
+    private final JdbcTemplate geoTargetJdbcTemplate;
 
     public GeoFileRegenerationFlagRepository(
-            @Qualifier("targetJdbcTemplate") JdbcTemplate targetJdbcTemplate) {
+            @Qualifier("targetJdbcTemplate") JdbcTemplate targetJdbcTemplate,
+            @Qualifier("geoTargetJdbcTemplate") JdbcTemplate geoTargetJdbcTemplate) {
         this.targetJdbcTemplate = targetJdbcTemplate;
+        this.geoTargetJdbcTemplate = geoTargetJdbcTemplate;
     }
 
     /**
@@ -113,6 +125,49 @@ public class GeoFileRegenerationFlagRepository {
                         + ")",
                 args);
         return new DepartedTerritoryFlagResult(level2Flagged, level3Flagged);
+    }
+
+    /**
+     * Flags level 3 (and their level 2 parents) whose linked layer features changed on the
+     * geo-target since {@code previousWatermark}. Deletions are handled via
+     * {@link #markLevel3TerritoriesAndParents} and {@code departedLevel3Ids} on the job context.
+     */
+    public DepartedTerritoryFlagResult markTerritoriesOfChangedLayerFeatures(
+            String layerTable,
+            String areaOfInterestTable,
+            String territoryLevel3Table,
+            String territoryLevel2Table,
+            Instant previousWatermark) {
+        StringBuilder sql = new StringBuilder(
+                "SELECT DISTINCT aoi." + AreaOfInterestConfig.TERRITORY_LEVEL_3_ID_COLUMN
+                        + " FROM " + layerTable + " l"
+                        + " INNER JOIN " + areaOfInterestTable + " aoi ON aoi."
+                        + AreaOfInterestConfig.ID_COLUMN + " = l."
+                        + LayerConfig.AREA_OF_INTEREST_ID_COLUMN
+                        + " WHERE aoi." + AreaOfInterestConfig.TERRITORY_LEVEL_3_ID_COLUMN
+                        + " IS NOT NULL");
+        List<Object> args = new ArrayList<>();
+        if (previousWatermark != null) {
+            OffsetDateTime since = toOffsetDateTime(previousWatermark);
+            sql.append(" AND (l.").append(LayerConfig.CREATED_AT_COLUMN).append(" > ?");
+            args.add(since);
+            sql.append(" OR l.").append(LayerConfig.UPDATED_AT_COLUMN).append(" > ?)");
+            args.add(since);
+        }
+
+        Set<String> level3Ids = new HashSet<>();
+        RowCallbackHandler handler = rs -> {
+            Object value = rs.getObject(1);
+            if (value != null) {
+                level3Ids.add(value.toString().trim());
+            }
+        };
+        if (args.isEmpty()) {
+            geoTargetJdbcTemplate.query(sql.toString(), handler);
+        } else {
+            geoTargetJdbcTemplate.query(sql.toString(), handler, args.toArray());
+        }
+        return markLevel3TerritoriesAndParents(level3Ids, territoryLevel3Table, territoryLevel2Table);
     }
 
     private static OffsetDateTime toOffsetDateTime(Instant instant) {
