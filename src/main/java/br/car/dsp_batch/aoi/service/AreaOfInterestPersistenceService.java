@@ -3,6 +3,7 @@ package br.car.dsp_batch.aoi.service;
 import br.car.dsp_batch.aoi.config.AreaOfInterestConfig;
 import br.car.dsp_batch.aoi.ddl.AreaOfInterestTableDdlBuilder;
 import br.car.dsp_batch.aoi.metadata.AreaOfInterestTableMetadata;
+import br.car.dsp_batch.aoi.territory.AreaOfInterestTerritoryLevel3Resolver;
 import br.car.dsp_batch.geometry.GeometrySql;
 import br.car.dsp_batch.layer.dto.LayerFeatureRecord;
 import br.car.dsp_batch.layer.metadata.ColumnMetadata;
@@ -30,12 +31,15 @@ public class AreaOfInterestPersistenceService {
 
     private final JdbcTemplate targetJdbcTemplate;
     private final JdbcTemplate geoTargetJdbcTemplate;
+    private final AreaOfInterestTerritoryLevel3Resolver territoryLevel3Resolver;
 
     public AreaOfInterestPersistenceService(
             @Qualifier("targetJdbcTemplate") JdbcTemplate targetJdbcTemplate,
-            @Qualifier("geoTargetJdbcTemplate") JdbcTemplate geoTargetJdbcTemplate) {
+            @Qualifier("geoTargetJdbcTemplate") JdbcTemplate geoTargetJdbcTemplate,
+            AreaOfInterestTerritoryLevel3Resolver territoryLevel3Resolver) {
         this.targetJdbcTemplate = targetJdbcTemplate;
         this.geoTargetJdbcTemplate = geoTargetJdbcTemplate;
+        this.territoryLevel3Resolver = territoryLevel3Resolver;
     }
 
     public void upsertAll(List<LayerFeatureRecord> items, AreaOfInterestTableMetadata metadata) {
@@ -65,6 +69,8 @@ public class AreaOfInterestPersistenceService {
             return;
         }
 
+        upsertGeoTarget(validItems, metadata);
+        enrichTerritoryLevel3Ids(validItems, metadata);
         upsertBusinessTarget(validItems, metadata);
         upsertGeoTarget(validItems, metadata);
 
@@ -201,9 +207,13 @@ public class AreaOfInterestPersistenceService {
             ps.setObject(index++, WatermarkTemporalBridge.toDspTimestamptz(instant));
             return index;
         }
-        if (AreaOfInterestConfig.ID_COLUMN.equals(targetColumn)
-                || AreaOfInterestConfig.TERRITORY_LEVEL_3_ID_COLUMN.equals(targetColumn)) {
+        if (AreaOfInterestConfig.ID_COLUMN.equals(targetColumn)) {
             ps.setString(index++, value == null ? null : String.valueOf(value));
+            return index;
+        }
+        if (AreaOfInterestConfig.TERRITORY_LEVEL_3_ID_COLUMN.equals(targetColumn)) {
+            Object territoryValue = resolveTerritoryLevel3Value(item, metadata);
+            ps.setString(index++, territoryValue == null ? null : String.valueOf(territoryValue));
             return index;
         }
         String udt = udtBySource.get(sourceColumn);
@@ -213,6 +223,43 @@ public class AreaOfInterestPersistenceService {
         }
         ps.setObject(index++, value);
         return index;
+    }
+
+    private void enrichTerritoryLevel3Ids(List<LayerFeatureRecord> items,
+                                          AreaOfInterestTableMetadata metadata) {
+        for (LayerFeatureRecord item : items) {
+            if (metadata.usesSourceTerritoryLevel3Column()) {
+                Object fromSource = item.getAttribute(metadata.territoryLevel3SourceColumn());
+                if (!isBlankValue(fromSource)) {
+                    continue;
+                }
+            }
+            String resolved = territoryLevel3Resolver
+                    .resolve(String.valueOf(item.getId()), metadata.targetTable())
+                    .orElse(null);
+            if (resolved == null) {
+                log.warn("No territory_level_3_id resolved for AOI id={}", item.getId());
+            }
+            item.putAttribute(AreaOfInterestConfig.TERRITORY_LEVEL_3_ID_COLUMN, resolved);
+        }
+    }
+
+    private static Object resolveTerritoryLevel3Value(LayerFeatureRecord item,
+                                                      AreaOfInterestTableMetadata metadata) {
+        if (metadata.usesSourceTerritoryLevel3Column()) {
+            Object fromSource = item.getAttribute(metadata.territoryLevel3SourceColumn());
+            if (!isBlankValue(fromSource)) {
+                return fromSource;
+            }
+        }
+        return item.getAttribute(AreaOfInterestConfig.TERRITORY_LEVEL_3_ID_COLUMN);
+    }
+
+    private static boolean isBlankValue(Object value) {
+        if (value == null) {
+            return true;
+        }
+        return String.valueOf(value).isBlank();
     }
 
     private Map<String, String> udtBySourceColumn(AreaOfInterestTableMetadata metadata) {

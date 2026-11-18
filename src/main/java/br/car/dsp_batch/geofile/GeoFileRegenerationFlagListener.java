@@ -157,7 +157,8 @@ public class GeoFileRegenerationFlagListener implements JobExecutionListener {
                 areaOfInterestTable,
                 level3Table,
                 level2Table,
-                previousWatermark);
+                previousWatermark,
+                layer.hasUpdatedAtColumn());
 
         Set<String> departedLevel3Ids = DepartedLevel3ContextSupport.read(jobExecution.getExecutionContext());
         var departedResult = flagRepository.markLevel3TerritoriesAndParents(
