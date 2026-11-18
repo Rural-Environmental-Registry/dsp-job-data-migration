@@ -129,6 +129,36 @@ class AreaOfInterestTableDdlBuilderTest {
         );
     }
 
+    @Test
+    void buildGeoCreateTable_IncludesTerritoryLevel3WhenNotMappedFromSource() {
+        AreaOfInterestTableMetadata metadata = sampleMetadataWithoutSourceTerritoryColumn();
+        String ddl = builder.buildGeoCreateTable(metadata);
+        assertTrue(ddl.contains("\"territory_level_3_id\" varchar(64)"));
+    }
+
+    private static AreaOfInterestTableMetadata sampleMetadataWithoutSourceTerritoryColumn() {
+        return new AreaOfInterestTableMetadata(
+                "area_of_interest",
+                "chile-conservation-units",
+                new QualifiedTable("conservation", "conservation_units"),
+                new QualifiedTable("dsp", "area_of_interest"),
+                "id",
+                TemporalTestFixtures.timestamptz("creation_date"),
+                null,
+                null,
+                null,
+                "geom",
+                4674,
+                List.of(
+                        new ColumnMetadata("id", "int8", null, null, null, false, false),
+                        new ColumnMetadata("creation_date", "timestamptz", null, null, null, false, false),
+                        new ColumnMetadata("geom", "geometry", null, null, null, true, true)
+                ),
+                List.of(),
+                "1=1"
+        );
+    }
+
     private static AreaOfInterestTableMetadata sampleMetadataWithoutSourceUpdatedAt() {
         return new AreaOfInterestTableMetadata(
                 "area_of_interest",

@@ -3,6 +3,7 @@ package br.car.dsp_batch.geofile;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowCallbackHandler;
 
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -11,6 +12,7 @@ import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -115,6 +117,60 @@ class GeoFileRegenerationFlagRepositoryTest {
         String level2Sql = sql.getAllValues().get(1);
         assertTrue(level3Sql.contains("WHERE id IN (?,?)"), level3Sql);
         assertTrue(level2Sql.contains("t3.parent_id"), level2Sql);
+    }
+
+    @Test
+    void markTerritoriesOfChangedLayerFeatures_UsesCreatedAtOnlyWhenUpdatedAtIsAbsent() {
+        repository.markTerritoriesOfChangedLayerFeatures(
+                "dsp.river",
+                "dsp.area_of_interest",
+                "dsp.territory_level_3",
+                "dsp.territory_level_2",
+                WATERMARK,
+                false);
+
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<Object[]> args = ArgumentCaptor.forClass(Object[].class);
+        verify(geoJdbcTemplate).query(sql.capture(), any(RowCallbackHandler.class), args.capture());
+        assertTrue(sql.getValue().contains("AND l.created_at > ?"), sql.getValue());
+        assertFalse(sql.getValue().contains("updated_at"), sql.getValue());
+        OffsetDateTime since = WATERMARK.atOffset(ZoneOffset.UTC);
+        assertEquals(1, args.getValue().length);
+        assertEquals(since, args.getValue()[0]);
+    }
+
+    @Test
+    void markTerritoriesOfChangedLayerFeatures_UsesCreatedAtOrUpdatedAtWhenTheColumnExists() {
+        repository.markTerritoriesOfChangedLayerFeatures(
+                "dsp.river",
+                "dsp.area_of_interest",
+                "dsp.territory_level_3",
+                "dsp.territory_level_2",
+                WATERMARK,
+                true);
+
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<Object[]> args = ArgumentCaptor.forClass(Object[].class);
+        verify(geoJdbcTemplate).query(sql.capture(), any(RowCallbackHandler.class), args.capture());
+        assertTrue(sql.getValue().contains("l.created_at > ? OR l.updated_at > ?"), sql.getValue());
+        OffsetDateTime since = WATERMARK.atOffset(ZoneOffset.UTC);
+        assertEquals(since, args.getValue()[0]);
+        assertEquals(since, args.getValue()[1]);
+    }
+
+    @Test
+    void markTerritoriesOfChangedLayerFeatures_OnFirstLoadSkipsTheWatermarkFilter() {
+        repository.markTerritoriesOfChangedLayerFeatures(
+                "dsp.river",
+                "dsp.area_of_interest",
+                "dsp.territory_level_3",
+                "dsp.territory_level_2",
+                null,
+                false);
+
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        verify(geoJdbcTemplate).query(sql.capture(), any(RowCallbackHandler.class));
+        assertFalse(sql.getValue().contains("created_at >"), sql.getValue());
     }
 
     @Test

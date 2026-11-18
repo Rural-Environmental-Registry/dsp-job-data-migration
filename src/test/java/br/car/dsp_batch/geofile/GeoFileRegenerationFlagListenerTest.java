@@ -18,6 +18,7 @@ import java.time.Instant;
 import java.util.Set;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -127,7 +128,7 @@ class GeoFileRegenerationFlagListenerTest {
         layersProperties.setLayers(java.util.List.of(layer));
 
         when(repository.markTerritoriesOfChangedLayerFeatures(
-                anyString(), anyString(), anyString(), anyString(), any()))
+                anyString(), anyString(), anyString(), anyString(), any(), anyBoolean()))
                 .thenReturn(new GeoFileRegenerationFlagRepository.DepartedTerritoryFlagResult(1, 2));
         when(repository.markLevel3TerritoriesAndParents(
                 anyCollection(), anyString(), anyString()))
@@ -141,7 +142,35 @@ class GeoFileRegenerationFlagListenerTest {
                 "dsp.area_of_interest",
                 "dsp.territory_level_3",
                 "dsp.territory_level_2",
-                WATERMARK);
+                WATERMARK,
+                false);
+    }
+
+    @Test
+    void afterJob_PassesUpdatedAtWhenTheLayerDeclaresIt() {
+        LayerConfig layer = enabledLayer();
+        layer.setUpdatedAtColumn("source_updated_at");
+
+        LayersProperties layersProperties = new LayersProperties();
+        layersProperties.setLayers(java.util.List.of(layer));
+
+        when(repository.markTerritoriesOfChangedLayerFeatures(
+                anyString(), anyString(), anyString(), anyString(), any(), anyBoolean()))
+                .thenReturn(new GeoFileRegenerationFlagRepository.DepartedTerritoryFlagResult(1, 1));
+        when(repository.markLevel3TerritoriesAndParents(
+                anyCollection(), anyString(), anyString()))
+                .thenReturn(new GeoFileRegenerationFlagRepository.DepartedTerritoryFlagResult(0, 0));
+
+        listener(layersProperties).afterJob(
+                execution(BatchStatus.COMPLETED, layer.resolveKey(), WATERMARK));
+
+        verify(repository).markTerritoriesOfChangedLayerFeatures(
+                "dsp.zona_seguranca_300m",
+                "dsp.area_of_interest",
+                "dsp.territory_level_3",
+                "dsp.territory_level_2",
+                WATERMARK,
+                true);
     }
 
     @Test
@@ -165,7 +194,7 @@ class GeoFileRegenerationFlagListenerTest {
                 "dsp.territory_level_3",
                 "dsp.territory_level_2");
         verify(repository, never()).markTerritoriesOfChangedLayerFeatures(
-                anyString(), anyString(), anyString(), anyString(), any());
+                anyString(), anyString(), anyString(), anyString(), any(), anyBoolean());
         verify(repository, never()).markChangedTerritories(anyString(), any());
         verify(repository, never()).markParentsOfChangedAreasOfInterest(
                 anyString(), anyString(), anyString(), anyString(), any());

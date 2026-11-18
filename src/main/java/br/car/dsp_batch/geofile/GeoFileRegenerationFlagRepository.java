@@ -131,13 +131,17 @@ public class GeoFileRegenerationFlagRepository {
      * Flags level 3 (and their level 2 parents) whose linked layer features changed on the
      * geo-target since {@code previousWatermark}. Deletions are handled via
      * {@link #markLevel3TerritoriesAndParents} and {@code departedLevel3Ids} on the job context.
+     *
+     * <p>{@code hasUpdatedAtColumn} follows the layer contract: {@code updated_at} is optional.
+     * When the geo-target table has no such column, the watermark window uses only {@code created_at}.
      */
     public DepartedTerritoryFlagResult markTerritoriesOfChangedLayerFeatures(
             String layerTable,
             String areaOfInterestTable,
             String territoryLevel3Table,
             String territoryLevel2Table,
-            Instant previousWatermark) {
+            Instant previousWatermark,
+            boolean hasUpdatedAtColumn) {
         StringBuilder sql = new StringBuilder(
                 "SELECT DISTINCT aoi." + AreaOfInterestConfig.TERRITORY_LEVEL_3_ID_COLUMN
                         + " FROM " + layerTable + " l"
@@ -149,10 +153,7 @@ public class GeoFileRegenerationFlagRepository {
         List<Object> args = new ArrayList<>();
         if (previousWatermark != null) {
             OffsetDateTime since = toOffsetDateTime(previousWatermark);
-            sql.append(" AND (l.").append(LayerConfig.CREATED_AT_COLUMN).append(" > ?");
-            args.add(since);
-            sql.append(" OR l.").append(LayerConfig.UPDATED_AT_COLUMN).append(" > ?)");
-            args.add(since);
+            appendLayerWatermarkFilter(sql, args, since, hasUpdatedAtColumn);
         }
 
         Set<String> level3Ids = new HashSet<>();
@@ -168,6 +169,21 @@ public class GeoFileRegenerationFlagRepository {
             geoTargetJdbcTemplate.query(sql.toString(), handler, args.toArray());
         }
         return markLevel3TerritoriesAndParents(level3Ids, territoryLevel3Table, territoryLevel2Table);
+    }
+
+    private static void appendLayerWatermarkFilter(StringBuilder sql,
+                                                   List<Object> args,
+                                                   OffsetDateTime since,
+                                                   boolean hasUpdatedAtColumn) {
+        if (hasUpdatedAtColumn) {
+            sql.append(" AND (l.").append(LayerConfig.CREATED_AT_COLUMN).append(" > ?");
+            args.add(since);
+            sql.append(" OR l.").append(LayerConfig.UPDATED_AT_COLUMN).append(" > ?)");
+            args.add(since);
+            return;
+        }
+        sql.append(" AND l.").append(LayerConfig.CREATED_AT_COLUMN).append(" > ?");
+        args.add(since);
     }
 
     private static OffsetDateTime toOffsetDateTime(Instant instant) {

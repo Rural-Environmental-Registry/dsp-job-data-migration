@@ -6,6 +6,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -17,6 +18,15 @@ class AreaOfInterestConfigTest {
         config.setAdditionalColumns(List.of("management_plan"));
 
         assertDoesNotThrow(config::validate);
+    }
+
+    @Test
+    void validate_AcceptsMissingTerritoryLevel3Column() {
+        AreaOfInterestConfig config = baseConfig();
+        config.setTerritoryLevel3Column(null);
+
+        assertDoesNotThrow(config::validate);
+        assertFalse(config.usesSourceTerritoryLevel3Column());
     }
 
     @Test
