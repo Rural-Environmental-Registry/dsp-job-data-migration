@@ -14,7 +14,7 @@ COPY src/ ./src/
 RUN chmod +x ./mvnw \
     && ./mvnw -q -DskipTests package
 
-FROM eclipse-temurin:21-jre-jammy AS runtime
+FROM eclipse-temurin:21.0.13.1_2-jre-jammy AS runtime
 WORKDIR /app
 
 # supercronic: Unix crontab in continuous mode (entrypoint is baked into the image).
