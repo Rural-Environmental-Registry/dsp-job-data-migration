@@ -116,6 +116,9 @@ case "$MODE" in
     cat >"$WRAPPER" <<'EOF'
 #!/bin/sh
 JAVA_BIN="java ${JAVA_OPTS:--XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0} -jar /app/app.jar --execution-jobs.reconciliation-jobs=true"
+# Limite do ciclo: se o Java não sair (ex.: travado depois de falha de job), timeout o encerra
+# e o wrapper libera o flock. Ajustável por DSP_MIGRATION_CYCLE_TIMEOUT (formato do timeout: 6h, 90m...).
+TIMEOUT="${DSP_MIGRATION_CYCLE_TIMEOUT:-6h}"
 lock="/tmp/dsp-migration-sync.lock"
 exec 9>"$lock"
 if ! flock -n 9; then
@@ -124,9 +127,12 @@ if ! flock -n 9; then
 fi
 echo "[entrypoint] Starting migration cycle..."
 set +e
-$JAVA_BIN
+timeout -k 60 "$TIMEOUT" $JAVA_BIN
 status=$?
 set -e
+if [ "$status" -eq 124 ] || [ "$status" -eq 137 ]; then
+  echo "[entrypoint] Migration cycle killed after ${TIMEOUT} (exit ${status}); lock released" >&2
+fi
 if [ "$status" -eq 0 ]; then
   echo "[entrypoint] Migration cycle finished successfully"
   if [ -n "${DSP_MIGRATION_SCHEDULED_AT:-}" ] && [ -f /publish-geoservers.sh ]; then
